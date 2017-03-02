@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -W #-}
 module Lib (
   main
 ) where
@@ -14,7 +13,7 @@ import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy.Char8 as C8L
 
 import qualified Pipend.Connections as PConnections
-import qualified Pipend.Connections.Curl ()
+import qualified Pipend.Connections.Curl as Curl
 import qualified Pipend.Connections.PostgreSQL as PostgreSQL
 
 data UserCommand = Add String (String, String) | Kill String
@@ -53,7 +52,7 @@ main' dic = do
         (M.lookup name dic)
 
 runQuery :: String -> String -> IO (Maybe String)
-runQuery "curl" args = fmap toString <$> PConnections.executeQuery () (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
+runQuery "curl" args = fmap toString <$> PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
 runQuery "sql" sargs = do
   let (connectionString, args) = read sargs
   let con = PostgreSQL.PostgreSQLConnection connectionString

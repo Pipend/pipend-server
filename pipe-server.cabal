@@ -17,9 +17,10 @@ library
   hs-source-dirs:      src
   exposed-modules:
                        Pipend
-                     , Pipend.Policy
                      , Pipend.Connections, Pipend.Connections.Curl, Pipend.Connections.PostgreSQL
-                     , Lib, Query
+                     , Pipend.Policy
+                     , Pipend.Query
+                     , Lib
   build-depends:       base >= 4.7 && < 5
                      , postgresql-simple >= 0.5 && < 0.6
                      , async >= 2.1 && < 2.2
@@ -34,6 +35,7 @@ library
                      , parsec
                      , hspec >= 2 && < 3
   default-language:    Haskell2010
+  ghc-options:         -W
 
 executable pipe-server-exe
   hs-source-dirs:      app

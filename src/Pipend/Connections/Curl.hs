@@ -1,7 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses, OverloadedStrings, FlexibleContexts #-}
 
 module Pipend.Connections.Curl (
-
+  CurlConnection (..)
 ) where
 
 import Pipend.Connections
@@ -12,7 +12,9 @@ import Text.Parsec.String (Parser)
 import Text.Parsec.Char (space, noneOf)
 import Control.Applicative ((*>))
 
-instance IsConnection () where
+data CurlConnection = CurlConnection
+
+instance IsConnection CurlConnection where
   executeQuery _ query =
     let args = regularParse parseArgs (executableQueryText query)
     in  case args of
