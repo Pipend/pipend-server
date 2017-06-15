@@ -18,8 +18,11 @@ instance IsConnection CurlConnection where
   executeQuery _ query =
     let args = regularParse parseArgs (executableQueryText query)
     in  case args of
-      Right args -> Just . StringResult <$> Process.readProcess "curl" (drop 1 args) ""
-      Left _ -> return Nothing
+      Right args -> return QueryRunner {
+          run = liftRunIO $ StringResult <$> Process.readProcess "curl" (drop 1 args) ""
+        , cancel = throwRunIO "Cannot cancel curl requests"
+      }
+      Left err -> throwRunIO (show err)
 
 
 regularParse :: Parser a -> String -> Either P.ParseError a

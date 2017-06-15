@@ -1,8 +1,10 @@
 module Lib (
-  main
+    main, getRunner
+  , appV, appT
+  , toString
 ) where
 
-import Data.Maybe (fromMaybe)
+import Data.Either (either)
 import qualified Control.Concurrent as C
 import qualified Data.Map as M
 import qualified Data.List.Split as S
@@ -18,6 +20,7 @@ import qualified Pipend.Connections.PostgreSQL as PostgreSQL
 
 data UserCommand = Add String (String, String) | Kill String
 
+parseInput :: String -> UserCommand
 parseInput userInput =
   let
       args@(cmd:_) = S.splitOn " " userInput
@@ -26,39 +29,55 @@ parseInput userInput =
       go "kill" (name:_) = Kill name
       go _ _ = error "invalid input"
 
-main' :: STM.TVar (M.Map String C.ThreadId) -> IO ()
+main' :: STM.TVar (M.Map String (C.ThreadId, PConnections.QueryCanceller)) -> IO ()
 main' dic = do
   userInput <- parseInput <$> getLine
-  process userInput
+  PConnections.runIO $ process userInput
   main' dic
 
   where
+    process :: UserCommand -> PConnections.RunIO ()
     process (Add name (queryType, queryArgs)) = do
-      putStrLn $ "queryType = " ++ queryType
-      putStrLn $ "queryArgs = " ++ queryArgs
-      t <- C.forkIO $ do
-        result <- runQuery queryType queryArgs
+      PConnections.liftRunIO $ putStrLn $ "queryType = " ++ queryType
+      PConnections.liftRunIO $ putStrLn $ "queryArgs = " ++ queryArgs
+      runner <- getRunner queryType queryArgs
+      t <- PConnections.liftRunIO $ C.forkIO $ do
+        result <- PConnections.runIO (PConnections.run runner)
         M.delete name `appV` dic
-        putStrLn $ fromMaybe "ERROR" result
-      putStrLn $ "TaskId " ++ show t
-      M.insert name t `appV` dic
-    process (Kill name) = appT processKill dic where
-      processKill :: M.Map String C.ThreadId -> (M.Map String C.ThreadId, IO ())
+        putStrLn $ either ("ERROR: "++) toString result
+      PConnections.liftRunIO $ putStrLn $ "TaskId " ++ show t
+      PConnections.liftRunIO $ M.insert name (t, PConnections.cancel runner) `appV` dic
+    process (Kill name) = PConnections.liftRunIO $ appT processKill dic where
+      processKill :: M.Map String (C.ThreadId, PConnections.QueryCanceller) -> (M.Map String (C.ThreadId, PConnections.QueryCanceller), IO ())
       processKill dic = maybe
         (dic, putStrLn ("Task " ++ name ++ " not found!"))
         (
-          \t -> (M.delete name dic, C.killThread t >> putStrLn "Killed")
+          \(t, c) -> (M.delete name dic, do
+              putStrLn "Kiling ..."
+              cancelResult <- PConnections.runIO c
+              case cancelResult of
+                Left e -> do
+                    putStrLn $ "Cancelling Error: " ++ e
+                    C.killThread t
+                Right _ -> putStrLn "Cancelled"
+              -- C.killThread t
+              putStrLn "Killed"
+            )
         )
         (M.lookup name dic)
 
-runQuery :: String -> String -> IO (Maybe String)
-runQuery "curl" args = fmap toString <$> PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
-runQuery "sql" sargs = do
+getRunner :: String -> String -> PConnections.RunIO PConnections.QueryRunner -- IO (Maybe String)
+getRunner "curl" args =
+  PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
+-- getRunner "curl" args = fmap toString <$> PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
+getRunner "sql" sargs = do
   let (connectionString, args) = read sargs
   let con = PostgreSQL.PostgreSQLConnection connectionString
-  fmap toString <$> PConnections.executeQuery con (PConnections.ExecutableQuery args M.empty)
-runQuery _ _ = error "invalid query type"
+  PConnections.executeQuery con (PConnections.ExecutableQuery args M.empty)
+  -- fmap toString <$>
+getRunner _ _ = PConnections.throwRunIO "Invalid query type"
 
+toString :: PConnections.QueryResult -> String
 toString (PConnections.StringResult result) = result
 toString (PConnections.JSONResult result) = C8L.unpack (JSON.encode result)
 
@@ -73,7 +92,7 @@ appT fn x = join $ STM.atomically $ do
   STM.writeTVar x x''
   return b
 
-
+main :: IO ()
 main = do
   System.IO.hSetBuffering System.IO.stdin System.IO.LineBuffering
   System.IO.hSetBuffering System.IO.stdout System.IO.LineBuffering

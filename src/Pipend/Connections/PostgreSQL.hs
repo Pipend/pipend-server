@@ -9,6 +9,7 @@ import Pipend.Connections
 import qualified Database.PostgreSQL.LibPQ as PQ
 import Foreign.C.Types (CUInt)
 import Control.Applicative (liftA2)
+-- import Control.Monad ((>>))
 
 import qualified Data.ByteString.Lazy.Char8 as C8L
 import qualified Data.ByteString.Char8 as C8
@@ -16,7 +17,6 @@ import qualified Data.Text.Encoding as TE
 
 import Data.Maybe (fromMaybe)
 import GHC.Exts (fromList)
-import Data.Traversable (traverse)
 
 import qualified Data.Aeson as JSON
 
@@ -26,10 +26,31 @@ data PostgreSQLConnection = PostgreSQLConnection {
 
 instance IsConnection PostgreSQLConnection where
   executeQuery conn query = do
-    conn <- PQ.connectdb (C8.pack $ postgreSqlConnectionString conn)
-    res <- PQ.exec conn $ C8.pack $ executableQueryText query
-    PQ.finish conn
-    resToJSON `traverse` res
+    conn <- liftRunIO $ PQ.connectdb (C8.pack $ postgreSqlConnectionString conn)
+    return QueryRunner {
+      run = do
+        liftRunIO $ print =<< PQ.backendPID conn
+        res <- liftRunIO $ PQ.exec conn $ C8.pack $ executableQueryText query
+        liftRunIO $ PQ.finish conn
+        maybe
+          (throwRunIO "Error in querying the database")
+          (liftRunIO . resToJSON)
+          res
+
+    , cancel = do
+        cancel <- liftRunIO $ PQ.getCancel conn
+        maybe
+          (throwRunIO "Error cancelling")
+          (\c -> do
+            c' <- liftRunIO $ PQ.cancel c
+            either
+              (throwRunIO . C8.unpack)
+              (\ r -> liftRunIO (PQ.finish conn) >> return r)
+              c'
+          )
+          cancel
+
+    }
 
 
 resToJSON :: PQ.Result -> IO QueryResult
