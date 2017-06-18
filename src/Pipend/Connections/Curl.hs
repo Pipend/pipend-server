@@ -1,4 +1,9 @@
-{-# LANGUAGE MultiParamTypeClasses, OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE
+    MultiParamTypeClasses
+  , OverloadedStrings
+  , FlexibleContexts
+  , DeriveGeneric
+#-}
 
 module Pipend.Connections.Curl (
   CurlConnection (..)
@@ -11,18 +16,34 @@ import qualified Text.Parsec as P
 import Text.Parsec.String (Parser)
 import Text.Parsec.Char (space, noneOf)
 import Control.Applicative ((*>))
+import GHC.Generics (Generic)
+import Control.Exception (try, SomeException)
+import System.Exit (ExitCode(..))
+import Control.Arrow ((|||))
+import qualified Data.Aeson as A
 
-data CurlConnection = CurlConnection
+data CurlConnection = CurlConnection deriving (Show, Generic)
+instance A.FromJSON CurlConnection
+instance A.ToJSON CurlConnection
 
 instance IsConnection CurlConnection where
   executeQuery _ query =
     let args = regularParse parseArgs (executableQueryText query)
     in  case args of
       Right args -> return QueryRunner {
-          run = liftRunIO $ StringResult <$> Process.readProcess "curl" (drop 1 args) ""
+          run = StringResult <$> runCommand "curl" (drop 1 args) ""
         , cancel = throwRunIO "Cannot cancel curl requests"
       }
       Left err -> throwRunIO (show err)
+
+runCommand :: FilePath -> [String] -> String -> RunIO String
+runCommand path args stdin =
+  (throwRunIO . show ||| handleExitCode) =<<
+    liftRunIO (try $ Process.readProcessWithExitCode path args stdin :: IO (Either SomeException (ExitCode, String, String )))
+  where
+    handleExitCode (ExitSuccess, out, _) = return out
+    handleExitCode (ExitFailure _, _, err) = throwRunIO err
+
 
 
 regularParse :: Parser a -> String -> Either P.ParseError a
