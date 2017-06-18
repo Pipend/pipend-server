@@ -66,15 +66,13 @@ main' dic = do
         )
         (M.lookup name dic)
 
-getRunner :: String -> String -> PConnections.RunIO PConnections.QueryRunner -- IO (Maybe String)
+getRunner :: String -> String -> PConnections.RunIO PConnections.QueryRunner
 getRunner "curl" args =
   PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
--- getRunner "curl" args = fmap toString <$> PConnections.executeQuery Curl.CurlConnection (PConnections.ExecutableQuery ("curl " ++ args) M.empty)
 getRunner "sql" sargs = do
   let (connectionString, args) = read sargs
   let con = PostgreSQL.PostgreSQLConnection connectionString
   PConnections.executeQuery con (PConnections.ExecutableQuery args M.empty)
-  -- fmap toString <$>
 getRunner _ _ = PConnections.throwRunIO "Invalid query type"
 
 toString :: PConnections.QueryResult -> String

@@ -1,7 +1,7 @@
 module Main where
 
 import qualified Lib
-import qualified WebServer
+import qualified TestWebServer
 
 main :: IO ()
-main = Lib.main
+main = TestWebServer.main

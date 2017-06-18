@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses
   , GeneralizedNewtypeDeriving
+  , DeriveGeneric
 #-}
 
 module Pipend.Connections (
@@ -20,13 +21,17 @@ import qualified Data.Aeson as JSON
 import qualified Control.Monad.Trans.Except as E
 import qualified Control.Monad.Except as ME
 import Control.Monad.Trans (liftIO)
+import qualified Data.Aeson as A
+import GHC.Generics
 
 data ExecutableQuery = ExecutableQuery {
     executableQueryText :: String
-  , executableQueryParams :: M.Map String String
-}
+  , executableQueryParams :: M.Map String A.Value
+} deriving (Generic, Show)
+instance A.FromJSON ExecutableQuery
+instance A.ToJSON ExecutableQuery
 
-data QueryResult = JSONResult JSON.Value | StringResult String
+data QueryResult = JSONResult JSON.Value | StringResult String deriving Show
 
 type SomeError = String
 type QueryCanceller = RunIO ()
@@ -48,14 +53,8 @@ runIO = ME.runExceptT . unIO
 liftRunIO :: IO a -> RunIO a
 liftRunIO = liftIO
 
+throwRunIO :: SomeError -> RunIO a
 throwRunIO = RunIO . E.throwE
---
--- duck :: Int -> QR QueryRunner
--- duck 1 =  return QueryRunner {}
--- duck _ =  throwQR "Some Error"
---
--- main :: QR QueryRunner -> IO (Either SomeError QueryRunner)
--- main q = E.runExceptT (runQR q)
 
 class IsConnection conn where
   executeQuery :: conn -> ExecutableQuery -> RunIO QueryRunner
