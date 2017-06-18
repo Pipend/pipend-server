@@ -21,6 +21,7 @@ library
                      , Pipend.Policy
                      , Pipend.Query
                      , Lib
+                     , Pipend.Config.Connections
                      , WebServer
                      , TestWebServer
                      , Pipend.Server

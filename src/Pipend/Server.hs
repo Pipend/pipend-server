@@ -14,7 +14,6 @@ module Pipend.Server (
   , toString
 ) where
 import Data.Either (either)
--- import Text.Read (readEither)
 import qualified Control.Concurrent as C
 import qualified Data.Map as M
 import Control.Monad (join)
@@ -22,30 +21,24 @@ import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy.Char8 as C8L
 
 import qualified Pipend.Connections as PC
-import qualified Pipend.Connections.Curl as Curl
-import qualified Pipend.Connections.PostgreSQL as PostgreSQL
+import qualified Pipend.Query as PQ
+import qualified Pipend.Connections.PostgreSQL as PostgreSQL -- only imported for the example in main' function
 
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Concurrent.STM as STM
 
 import qualified Data.Aeson as A
-import GHC.Generics
+import GHC.Generics (Generic)
 
 type TaskId = String
-data QueryType =
-    PostgreSQL String PC.ExecutableQuery
-  | Curl String
+data QueryType = QueryType { connection :: PQ.Connections, queryAndParams ::  PC.ExecutableQuery }
   deriving (Generic, Show)
 instance A.FromJSON QueryType
 instance A.ToJSON QueryType
 
 getRunnerFromQueryType :: QueryType -> PC.RunIO PC.QueryRunner
-getRunnerFromQueryType (PostgreSQL connectionString xQuery) =
-  let con = PostgreSQL.PostgreSQLConnection connectionString
-  in PC.executeQuery con xQuery
-getRunnerFromQueryType (Curl command) =
-  PC.executeQuery Curl.CurlConnection (PC.ExecutableQuery ("curl " ++ command) M.empty)
-
+getRunnerFromQueryType queryType =
+  PC.executeQuery (connection queryType) (queryAndParams queryType)
 
 toString :: PC.QueryResult -> String
 toString (PC.StringResult result) = result
@@ -62,7 +55,6 @@ appT fn x = join $ STM.atomically $ do
   STM.writeTVar x x''
   return b
 
--- data UserCommand = Add TaskId (String, String) | Kill String
 type QueryOut = Either PC.SomeError PC.QueryResult
 type TasksDic = M.Map TaskId (C.ThreadId, PC.QueryCanceller, MVar.MVar QueryOut)
 
@@ -126,8 +118,6 @@ main :: IO Interface
 main = do
   serverLoop <- MVar.newEmptyMVar
   dic <- STM.atomically $ STM.newTVar M.empty
-  -- addTask :: IO () -> IO ()
-  -- let addTask' = addTask dic serverLoop
 
   let interface = Interface {
       startTask = startTask' dic serverLoop
@@ -143,10 +133,9 @@ main' = do
   let start = startTask interface
   let kill  = killTask interface
   C.forkIO $ do
-    -- taskResult <- adder $ Add "a" ("sql", "(\"postgres://marketing:XN&Ho)pxp=7@jewelbox.cit562lelvpp.us-east-1.redshift.amazonaws.com:5439/rockman\", \"select country_code, count(*) as events from events where timestamp > '2016-06-01' group by country_code limit 10\")")
     taskResult <- start "taskId1" $
-      PostgreSQL
-        "postgres://127.0.0.1"
+      QueryType
+        (PQ.PostgreSQL $ PostgreSQL.PostgreSQLConnection "postgres://127.0.0.1")
         $ PC.ExecutableQuery
           "select 10 * 12"
           M.empty
@@ -157,6 +146,4 @@ main' = do
     killResult <- kill "taskId1"
     C.threadDelay $ 1 * 1000000
     putStrLn $ "killResult = " ++ either show toString killResult
-  -- adder $ print "hello2"
   return ()
-  -- adder

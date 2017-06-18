@@ -1,5 +1,5 @@
 .stack-work/
 _Test*
 .DS_Store
-configs/
+/configs/
 node_modules/

@@ -1,4 +1,8 @@
-{-# LANGUAGE MultiParamTypeClasses, OverloadedStrings #-}
+{-# LANGUAGE
+    MultiParamTypeClasses
+  , OverloadedStrings
+  , DeriveGeneric
+#-}
 
 module Pipend.Connections.PostgreSQL (
   PostgreSQLConnection(..)
@@ -16,18 +20,21 @@ import Control.Arrow ((+++), (|||))
 import Control.Monad (join)
 import Data.Maybe (fromMaybe)
 import GHC.Exts (fromList)
-import qualified Data.Aeson as JSON
+import GHC.Generics (Generic)
+import qualified Data.Aeson as A
 
 -- sql template to sql
 -- (EX.try (Process.readProcessWithExitCode "./node/Pipend/Connection-Utils/sql-template.js" [""] "") :: IO (Either EX.SomeException (ExitCode, String, String ))) >>= print
 
 newtype PostgreSQLConnection = PostgreSQLConnection {
-  postgreSqlConnectionString :: String
-}
+  connectionString :: String
+} deriving (Show, Generic)
+instance A.FromJSON PostgreSQLConnection
+instance A.ToJSON PostgreSQLConnection
 
 instance IsConnection PostgreSQLConnection where
   executeQuery conn query = do
-    conn <- liftRunIO $ PQ.connectdb (C8.pack $ postgreSqlConnectionString conn)
+    conn <- liftRunIO $ PQ.connectdb (C8.pack $ connectionString conn)
     return QueryRunner {
       run = liftRunIO (runPGQuery conn query) >>= throwRunIO ||| (liftRunIO . resToJSON)
     , cancel = liftRunIO (cancelPGQuery conn) >>= throwRunIO ||| return
@@ -55,26 +62,26 @@ resToJSON res = do
     return (c, t, fromMaybe "error" n)
     ) cols
 
-  json <- JSON.Array . fromList <$> mapM (rowToJSON res columns) rows
+  json <- A.Array . fromList <$> mapM (rowToJSON res columns) rows
   return $ JSONResult json
 
   where
 
-  rowToJSON :: PQ.Result -> [(PQ.Column, PQ.Oid, C8.ByteString)] -> PQ.Row -> IO JSON.Value
-  rowToJSON res cols row = JSON.Object . fromList <$> mapM
+  rowToJSON :: PQ.Result -> [(PQ.Column, PQ.Oid, C8.ByteString)] -> PQ.Row -> IO A.Value
+  rowToJSON res cols row = A.Object . fromList <$> mapM
     (\ (col, PQ.Oid i, name) ->
         (,) (showName name)
-        <$> (maybe JSON.Null (showCell i) <$> PQ.getvalue res row col)
+        <$> (maybe A.Null (showCell i) <$> PQ.getvalue res row col)
     )
     cols
 
-  showCell :: CUInt -> C8.ByteString -> JSON.Value
-  showCell 705 = JSON.String . TE.decodeUtf8
-  showCell 16 = \ v -> JSON.Bool $ "t" == C8.unpack v
+  showCell :: CUInt -> C8.ByteString -> A.Value
+  showCell 705 = A.String . TE.decodeUtf8
+  showCell 16 = \ v -> A.Bool $ "t" == C8.unpack v
   -- first try to parse to cell to an arbitrary JSON value, then String
   showCell _ = liftA2 fromMaybe stringVal tryJson where
-    tryJson = JSON.decode . C8L.fromStrict
-    stringVal = JSON.String . TE.decodeUtf8
+    tryJson = A.decode . C8L.fromStrict
+    stringVal = A.String . TE.decodeUtf8
 
   showName = TE.decodeUtf8
 

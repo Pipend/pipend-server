@@ -1,7 +1,6 @@
 {-# LANGUAGE
     GeneralizedNewtypeDeriving
   , OverloadedStrings
-  , DeriveGeneric
 #-}
 
 module TestWebServer (
@@ -17,16 +16,9 @@ import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Web.Scotty.Trans
 import Network.Wai.Middleware.RequestLogger
-import qualified Pipend.Server as Server
 import qualified Data.Aeson as A
-import GHC.Generics
-
-data PostgreSQLInput = PostgreSQLInput {
-    connectionString :: String
-  , query :: String
-} deriving (Generic, Show)
-instance A.FromJSON PostgreSQLInput
-instance A.ToJSON PostgreSQLInput
+import qualified Pipend.Server as Server
+import qualified Pipend.Config.Connections as Connections
 
 type AppState = Server.Interface
 
@@ -45,19 +37,8 @@ killTask taskId = fmap Server.killTask (lift ask) >>= liftIO . ($ taskId)
 app :: ScottyT Text WebM ()
 app = do
   middleware logStdoutDev
-  get "/add/postgresql/:id" $ do
-    taskId <- param "id"
-    taskResult <- startTask taskId $ Server.PostgreSQL
-      "postgres://127.0.0.1"
-      $ Server.ExecutableQuery
-        "select 10 * 12"
-        M.empty
-    either
-      (text . pack)
-      (text . pack . Server.toString)
-      taskResult
 
-  get "/kill/:id" $ do
+  get "/api/kill/:id" $ do
     taskId <- param "id"
     taskResult <- killTask taskId
     either
@@ -65,8 +46,7 @@ app = do
       (text . pack . Server.toString)
       taskResult
 
-  -- fmap A.encode (A.decode (C8L.pack params) :: Maybe A.Value)
-  post "/test/sql/:id" $ do
+  post "/api/query/arbitrary/:id" $ do
     input <- jsonData :: ActionT Text WebM Server.QueryType
     taskId <- param "id"
     taskResult <- startTask taskId input
@@ -75,15 +55,22 @@ app = do
       (text . pack . Server.toString)
       taskResult
 
-    -- text $ decodeUtf8 $ A.encode input
-
-    -- queryParams <- (fromMaybe M.empty . A.decode <$> param "params") :: ActionT Text WebM (M.Map String A.Value)
-    -- text $ decodeUtf8 $ A.encode input
-    -- text $ decodeUtf8 $ A.encode $ Server.PostgreSQL
-    --   "localhost"
-    --   $ Server.ExecutableQuery
-    --     "select 5 * 7"
-    --     queryParams
+  post "/api/query/connection/:connectionId/taskid/:id" $ do
+    taskId <- param "id" :: ActionT Text WebM Server.TaskId
+    connectionId <- param "connectionId"
+    connection <- liftIO $  (M.lookup connectionId =<<) <$> Connections.getConnections
+    input <- jsonData :: ActionT Text WebM Server.ExecutableQuery
+    maybe
+      (text "Connection not found")
+      (\ connection -> do
+        let queryType = Server.QueryType connection input
+        taskResult <- startTask taskId queryType
+        either
+          (text . pack)
+          (text . pack . Server.toString)
+          taskResult
+      )
+      connection
 
   post "/test/:a" $ do
     b <- decodeUtf8 <$> body
@@ -91,6 +78,8 @@ app = do
     liftIO $ putStrLn $ unpack b
     text $ TL.concat [b, "\n", a]
 
+  -- list all connections
+  get "/" $ liftIO Connections.getConnections >>= text . maybe "error" (decodeUtf8 . A.encode)
 
 
 main :: IO ()

@@ -1,26 +1,41 @@
-```
-stack ghci
+# Pipe Web Server
 
-main
-```
+## Setup
 
-Run a cURL query:
+### Server Configuration
 
 ```
-add a curl https://www.google.com -L
+mkdir -p ./configs
+echo '{
+  "localhost": {
+    "tag": "PostgreSQL",
+    "contents": {
+      "connectionString": "postgres://127.0.0.1"
+    }
+  }
+}' > ./configs/connections.json
 ```
 
-run a PostgreSQL query:
+### Build
 
 ```
-add b sql ("", "select 2 + 5")
+stack setup
+stack build
+stack exec pipend-server-exe
 ```
 
-Kill a task:
+## Usae Examples
 
+Check [test](/test) for more examples.
+
+**Running a Query with pre-defined Connection**
 ```
-add a curl "http://httpbin.org/delay/3" -s
-kill a
+curl \
+  --data '{"executableQueryText":"select 5 * 7","executableQueryParams":{}}' \
+  ":3000/api/query/connection/localhost/taskid/taska"
 ```
 
-(`a` is the task's name)
+**Killing a Query**
+```
+curl ":3000/api/kill/taska"
+```
